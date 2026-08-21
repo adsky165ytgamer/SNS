@@ -10,6 +10,9 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -17,7 +20,9 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import app.sender.auth.AuthenticatedIdentity
+import app.sender.auth.FirebaseBootstrap
 import app.sender.auth.GoogleAuthSession
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** Sender workflow: select a real API-returned Receiver first, then compose and send its notice. */
@@ -41,6 +46,10 @@ class SenderActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isNavigationBarContrastEnforced = false
         setContentView(buildScreen())
         renderConfiguredState()
         lockComposer()
@@ -72,6 +81,13 @@ class SenderActivity : ComponentActivity() {
         body.addView(resultText)
         body.addView(label("BACKEND: ${SenderBackendClient.endpointLabel()}", Color.parseColor("#76858A"), 11f, Typeface.NORMAL).apply { setPadding(dp(4), dp(18), dp(4), 0) })
         page.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            header.setPadding(dp(24) + safe.left, dp(28) + safe.top, dp(24) + safe.right, dp(22))
+            body.setPadding(dp(20) + safe.left, dp(20), dp(20) + safe.right, dp(32) + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(page)
         return page
     }
 
@@ -80,10 +96,10 @@ class SenderActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
             addView(label("GOOGLE ACCOUNT", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
-            authSummary = label("Not signed in. Sign in to manage live Receivers and send notices.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
+            authSummary = label("Not authenticated. Secure the Sender before loading live Receivers.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
             addView(authSummary)
             authButton = MaterialButton(this@SenderActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                text = "Sign in with Google"
+                text = authSession.preferredButtonText()
                 setOnClickListener { authenticate() }
             }
             addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -120,36 +136,36 @@ class SenderActivity : ComponentActivity() {
         })
     }
 
-    private fun authenticate() = lifecycleScope.launch {
+    private fun authenticate(): Job = lifecycleScope.launch {
         authButton.isEnabled = false
         authButton.text = "Signing in…"
         runCatching { authSession.signIn() }.onSuccess {
             authIdentity = it
             renderAuth(it)
-            statusChip.text = "Google account connected"
-            statusText.text = "Sender is ready to load live Receivers."
+            statusChip.text = "Authenticated"
+            statusText.text = "${it.authMethod} is active. Sender is ready to load live Receivers."
             if (SenderBackendClient.isConfigured()) loadReceivers()
         }.onFailure { error ->
-            authSummary.text = error.message ?: "Google Sign-In did not complete."
+            authSummary.text = error.message ?: "Secure authentication did not complete."
             statusChip.text = "Sign-in needs attention"
-            statusText.text = "Sign in with Google before using the Sender."
+            statusText.text = "Retry authentication before using the Sender."
         }.also {
             authButton.isEnabled = true
-            authButton.text = if (authIdentity == null) "Sign in with Google" else "Sign out"
+            authButton.text = if (authIdentity == null) authSession.preferredButtonText() else "Sign out"
             authButton.setOnClickListener { if (authIdentity == null) authenticate() else signOut() }
         }
     }
 
-    private fun signOut() = lifecycleScope.launch {
+    private fun signOut(): Job = lifecycleScope.launch {
         authSession.signOut()
         authIdentity = null
-        authSummary.text = "Not signed in. Sign in to manage live Receivers and send notices."
-        authButton.text = "Sign in with Google"
+        authSummary.text = "Not authenticated. Secure the Sender before loading live Receivers."
+        authButton.text = authSession.preferredButtonText()
         authButton.setOnClickListener { authenticate() }
         lockComposer()
         receiverList.removeAllViews()
         statusChip.text = "Signed out"
-        statusText.text = "Sign in with Google to load live Receiver devices."
+        statusText.text = "Authenticate to load live Receiver devices."
     }
 
     private suspend fun refreshAuth() {
@@ -160,7 +176,7 @@ class SenderActivity : ComponentActivity() {
     }
 
     private fun renderAuth(identity: AuthenticatedIdentity) {
-        authSummary.text = "Signed in as ${identity.email ?: identity.displayName ?: identity.uid}."
+        authSummary.text = "${identity.authMethod}: ${identity.email ?: identity.displayName ?: "device identity"}."
         authButton.text = "Sign out"
         authButton.setOnClickListener { signOut() }
     }
