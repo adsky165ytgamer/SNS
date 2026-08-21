@@ -40,6 +40,7 @@ class SenderActivity : ComponentActivity() {
     private var activeSection = Section.HOME
     private var selectedType = "Information"
     private var selectedHistory: DeliveryRecord? = null
+    private var receiverLoadMessage = "Tap load to read real Receiver records from the backend."
     private lateinit var root: LinearLayout
     private lateinit var content: LinearLayout
     private lateinit var bottomNavigation: LinearLayout
@@ -114,6 +115,7 @@ class SenderActivity : ComponentActivity() {
         content.addView(label(if (authIdentity == null) "Sign in, then make the first move." else "Make the next notice count.", INK, 29f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(6)) })
         content.addView(label("Everything important is one tap away: create, choose, send, remember.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(18)) })
         content.addView(primaryCard("Create a notice", "Start with a clear message and a real audience.", "＋") { renderComposer() })
+        content.addView(primaryButton("Load live Receivers") { renderSection(Section.RECEIVERS); loadReceivers() }, margins(10))
         content.addView(sectionLabel("AT A GLANCE"), margins(18))
         val records = history.items()
         val live = receivers.count()
@@ -142,7 +144,8 @@ class SenderActivity : ComponentActivity() {
         searchInput = search
         content.addView(outlinedInput("Search", search), margins(0))
         content.addView(primaryButton(if (receivers.isEmpty()) "Load live Receivers" else "Refresh live Receivers") { loadReceivers() }, margins(12))
-        if (receivers.isEmpty()) content.addView(emptyCard("No live targets loaded", "Sign in and load the real Receiver records from the backend."), margins(12))
+        content.addView(settingsCard("Live list status", receiverLoadMessage, "Endpoint: ${SenderBackendClient.endpointLabel()}"), margins(12))
+        if (receivers.isEmpty()) content.addView(emptyCard("No live targets loaded", "If the list remains empty, open Settings and sign in again before retrying."), margins(12))
         filteredReceivers().forEach { content.addView(receiverCard(it), margins(10)) }
     }
 
@@ -205,22 +208,37 @@ class SenderActivity : ComponentActivity() {
     }
 
     private fun loadReceivers() = lifecycleScope.launch {
-        val token = authIdentity?.idToken
-        if (token == null) { setTransient("Sign in before loading live Receivers"); renderSection(Section.SETTINGS); return@launch }
+        receiverLoadMessage = "Loading live Receiver records…"
+        renderSection(Section.RECEIVERS)
+        val current = authIdentity ?: runCatching { authSession.current() }.getOrNull().also { authIdentity = it }
+        val token = current?.idToken
+        if (token == null) {
+            receiverLoadMessage = "Authentication is required before the protected Receiver list can load. Open Settings to sign in."
+            setTransient("Sign in before loading live Receivers")
+            renderSection(Section.RECEIVERS)
+            return@launch
+        }
         val result = runCatching { withContext(Dispatchers.IO) { SenderBackendClient.loadReceivers(token) } }
-        result.onSuccess { receivers.clear(); receivers.addAll(it); selectedReceiver = null; renderSection(Section.RECEIVERS) }
-            .onFailure { setTransient(it.message ?: "Could not load Receivers") }
+        result.onSuccess {
+            receivers.clear(); receivers.addAll(it); selectedReceiver = null
+            receiverLoadMessage = if (it.isEmpty()) "The backend responded successfully, but no enabled Receivers are registered." else "${it.size} enabled Receiver${if (it.size == 1) "" else "s"} loaded from the live backend."
+            renderSection(Section.RECEIVERS)
+        }.onFailure {
+            receiverLoadMessage = it.message ?: "The live Receiver request failed."
+            setTransient(receiverLoadMessage)
+            renderSection(Section.RECEIVERS)
+        }
     }
 
     private fun signIn() = lifecycleScope.launch {
         runCatching { authSession.signInWithEmail(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { authIdentity = it; setTransient("Account connected"); renderSection(Section.HOME) }
+            .onSuccess { authIdentity = it; setTransient("Account connected"); renderSection(Section.HOME); loadReceivers() }
             .onFailure { setTransient(it.message ?: "Sign-in needs attention") }
     }
 
     private fun createAccount() = lifecycleScope.launch {
         runCatching { authSession.createEmailAccount(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { authIdentity = it; setTransient("Account created"); renderSection(Section.HOME) }
+            .onSuccess { authIdentity = it; setTransient("Account created"); renderSection(Section.HOME); loadReceivers() }
             .onFailure { setTransient(it.message ?: "Could not create account") }
     }
 
@@ -253,7 +271,7 @@ class SenderActivity : ComponentActivity() {
     private fun receiverCard(receiver: LiveReceiver): MaterialCardView = card().apply {
         val selected = receiver.receiverId == selectedReceiver?.receiverId
         setCardBackgroundColor(Color.parseColor(if (selected) "#E5E1FF" else "#FFFFFF")); strokeColor = Color.parseColor(if (selected) "#6154C7" else "#E3E1ED"); strokeWidth = dp(if (selected) 2 else 1); isClickable = true
-        addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(15), dp(16), dp(15)); addView(label(receiver.label, INK, 17f, Typeface.BOLD)); addView(label("●  Online · ${receiver.receiverId.take(8)}…", Color.parseColor("#438A69"), 13f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) }) })
+        addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(15), dp(16), dp(15)); addView(label(receiver.label, INK, 17f, Typeface.BOLD)); addView(label("●  ${receiver.lastSeenAt ?: "Registered"} · ${receiver.receiverId.take(8)}…", Color.parseColor("#438A69"), 13f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) }) })
         setOnClickListener { selectedReceiver = receiver; renderSection(Section.RECEIVERS) }
     }
 
