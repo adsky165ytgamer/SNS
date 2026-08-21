@@ -1,39 +1,55 @@
-# School Notice Sender
+# NoticeFlow Sender
 
-**NoticeFlow Sender** is the Android notice-composition application for the V0.1 school-notice broadcast prototype. It loads only real enabled Receiver records from the backend, requires a user to select one target explicitly, then unlocks notice composition and sends the selected device’s notice through the trusted backend.
+The NoticeFlow Sender is the Android control surface for composing and delivering school notices to real Receiver installations. It authenticates a sender account, loads enabled Receiver records from the live backend, lets the operator choose one exact named device, and sends a title and message through Firebase Cloud Messaging.
 
-> This is a prototype package. The included debug APK was built against a temporary test backend URL and may no longer connect after that endpoint expires. Configure a permanent HTTPS backend URL before relying on it.
+The application package is `app.sender`. The current debug APK is available from the [latest Sender release](https://github.com/adsky165ytgamer/SNS/releases/latest).
 
-## What this repository contains
+## What the Sender does
 
-| Path | Purpose |
-|---|---|
-| `android/sender-app/` | Sender Android source, package ID `app.sender` |
-| `backend/` | Shared Fastify + Firebase Admin backend source needed by the complete system |
-| `prototype-apk/NoticeFlowSender-v0.1.1-debug.apk` | Verified prototype Sender debug APK |
-| `docs/` | Device-test guide and complete V0.1 technical handoff |
+The Sender follows a deliberate three-stage workflow: authenticate the operator, choose a live delivery target, and write and deliver the notice. Receiver cards are populated from the backend response; the application does not fabricate device names, IDs, availability, or delivery status. A selected card is highlighted before the composer unlocks, reducing the chance of sending a notice to the wrong installation.
 
-## Sender flow
+When the operator sends a notice, the Sender posts the selected receiver ID, title, and message to the authenticated Fastify API. The backend retrieves the private FCM token, sends a high-priority data message, and records the dispatch in Firestore without returning or logging the token to the client.
 
-```text
-Load registered Receiver records → select exact target → write notice →
-POST /api/v1/test-notice → trusted backend → Firebase Cloud Messaging → Receiver
+## Authentication
+
+The primary sign-in system is Firebase Email/Password authentication in the original `school-notics` Firebase project. The Sender supports account creation, sign-in, password reset, session restoration, and sign-out. Firebase issues an ID token after successful authentication, and receiver discovery and notice delivery send that token as `Authorization: Bearer <token>`.
+
+The backend verifies the token with Firebase Admin SDK. A Sender without a valid authenticated session cannot load receivers or dispatch notices. Google Sign-In remains optional code, but it is not required for the primary Sender workflow.
+
+## Sender setup
+
+Install the APK from the release page and create or use an Email/Password account enabled in Firebase Authentication. Select **Load registered receivers**, tap the intended named device, write a concise title and message, and select **Send to selected receiver**. The status area reports whether the backend accepted the dispatch.
+
+The application requires a reachable permanent HTTPS backend URL and the public Firebase client metadata for the original `school-notics` project. These values belong in local build configuration and must not be committed.
+
+## Building from source
+
+Copy `gradle.properties.example` to `gradle.properties`, set the permanent backend URL and the public Firebase client metadata, then build the Sender module.
+
+```bash
+cp gradle.properties.example gradle.properties
+cd android
+../gradle-8.13/bin/gradle :sender-app:assembleDebug
 ```
 
-The sender does not contain privileged Firebase credentials and never sends directly to FCM. The backend controls Firestore access and FCM delivery.
+The resulting debug APK is written to `android/sender-app/build/outputs/apk/debug/sender-app-debug.apk`. The repository also includes the release artifact under `artifacts/NoticeFlow-Sender-debug.apk`.
 
-## Local build prerequisites
+## Backend contract
 
-1. Deploy or run the trusted backend with Firebase Admin credentials configured only in the server environment.
-2. Copy `android/gradle.properties.example` to `android/gradle.properties` and set `BACKEND_BASE_URL` to the permanent HTTPS backend URL.
-3. From `android/`, run `./gradlew :sender-app:assembleDebug` or an equivalent Gradle command.
+The Sender uses the following live endpoints:
 
-The Sender does not require `google-services.json`; it only uses the HTTPS REST backend.
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Checks backend reachability. |
+| `GET /api/v1/receivers` | Returns enabled Receiver metadata for the authenticated Sender. |
+| `POST /api/v1/test-notice` | Sends a high-priority notice to the selected Receiver and logs the dispatch. |
 
-## Backend setup
+The backend remains the source of truth for receiver availability and notice delivery. The Sender only displays data returned by the live API.
 
-The `backend/` directory is the trusted Fastify service. Configure Firebase Admin credentials only through runtime environment configuration, such as `FIREBASE_SERVICE_ACCOUNT_JSON`, or a cloud runtime identity. Never commit credentials. See `backend/README.md` and `docs/NOTICEFLOW_V01_DETAILED_HANDOFF_PROMPT.md`.
+## Security notes
 
-## Prototype status
+Never place Firebase Admin service-account JSON, FCM server credentials, private keys, or production backend secrets in this repository or inside the APK. The Sender uses only Firebase client-side authentication and short-lived Firebase ID tokens. The service-account key previously exposed during development must be revoked and replaced before production use.
 
-The target-first Sender interaction was verified with a real registered Receiver record. The Sender loaded the live Receiver, required explicit selection, submitted its precise receiver ID to the backend, and a real notice was delivered to the Receiver.
+## Release contents
+
+The GitHub release contains the matching debug APK for package `app.sender`, while this repository contains the sanitized Android source, backend source, documentation, build examples, and authentication handoff. A physical device test is still required to validate the final live FCM delivery path.
