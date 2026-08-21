@@ -16,6 +16,8 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import app.sender.auth.AuthenticatedIdentity
+import app.sender.auth.GoogleAuthSession
 import kotlinx.coroutines.launch
 
 /** Sender workflow: select a real API-returned Receiver first, then compose and send its notice. */
@@ -30,10 +32,23 @@ class SenderActivity : ComponentActivity() {
     private lateinit var bodyInput: TextInputEditText
     private lateinit var sendButton: MaterialButton
     private lateinit var resultText: TextView
+    private lateinit var authSummary: TextView
+    private lateinit var authButton: MaterialButton
     private val receiverCards = mutableMapOf<String, MaterialCardView>()
     private var selectedReceiver: LiveReceiver? = null
+    private val authSession by lazy { GoogleAuthSession(this) }
+    private var authIdentity: AuthenticatedIdentity? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContentView(buildScreen()); renderConfiguredState(); lockComposer() }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(buildScreen())
+        renderConfiguredState()
+        lockComposer()
+        lifecycleScope.launch {
+            refreshAuth()
+            if (SenderBackendClient.isConfigured() && authIdentity != null) loadReceivers()
+        }
+    }
 
     private fun buildScreen(): View {
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#F6F8F7")) }
@@ -48,6 +63,7 @@ class SenderActivity : ComponentActivity() {
         body.addView(statusChip)
         statusText = label("", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(10), 0, dp(14)) }
         body.addView(statusText)
+        body.addView(authPanel(), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) })
 
         body.addView(targetPanel(), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) })
         composerCard = composerPanel()
@@ -57,6 +73,21 @@ class SenderActivity : ComponentActivity() {
         body.addView(label("BACKEND: ${SenderBackendClient.endpointLabel()}", Color.parseColor("#76858A"), 11f, Typeface.NORMAL).apply { setPadding(dp(4), dp(18), dp(4), 0) })
         page.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         return page
+    }
+
+    private fun authPanel(): MaterialCardView = card().apply {
+        addView(LinearLayout(this@SenderActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label("GOOGLE ACCOUNT", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            authSummary = label("Not signed in. Sign in to manage live Receivers and send notices.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
+            addView(authSummary)
+            authButton = MaterialButton(this@SenderActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Sign in with Google"
+                setOnClickListener { authenticate() }
+            }
+            addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        })
     }
 
     private fun targetPanel(): MaterialCardView = card().apply {
@@ -89,18 +120,78 @@ class SenderActivity : ComponentActivity() {
         })
     }
 
+    private fun authenticate() = lifecycleScope.launch {
+        authButton.isEnabled = false
+        authButton.text = "Signing in…"
+        runCatching { authSession.signIn() }.onSuccess {
+            authIdentity = it
+            renderAuth(it)
+            statusChip.text = "Google account connected"
+            statusText.text = "Sender is ready to load live Receivers."
+            if (SenderBackendClient.isConfigured()) loadReceivers()
+        }.onFailure { error ->
+            authSummary.text = error.message ?: "Google Sign-In did not complete."
+            statusChip.text = "Sign-in needs attention"
+            statusText.text = "Sign in with Google before using the Sender."
+        }.also {
+            authButton.isEnabled = true
+            authButton.text = if (authIdentity == null) "Sign in with Google" else "Sign out"
+            authButton.setOnClickListener { if (authIdentity == null) authenticate() else signOut() }
+        }
+    }
+
+    private fun signOut() = lifecycleScope.launch {
+        authSession.signOut()
+        authIdentity = null
+        authSummary.text = "Not signed in. Sign in to manage live Receivers and send notices."
+        authButton.text = "Sign in with Google"
+        authButton.setOnClickListener { authenticate() }
+        lockComposer()
+        receiverList.removeAllViews()
+        statusChip.text = "Signed out"
+        statusText.text = "Sign in with Google to load live Receiver devices."
+    }
+
+    private suspend fun refreshAuth() {
+        runCatching { authSession.current() }.onSuccess {
+            authIdentity = it
+            if (it != null && ::authSummary.isInitialized) renderAuth(it)
+        }
+    }
+
+    private fun renderAuth(identity: AuthenticatedIdentity) {
+        authSummary.text = "Signed in as ${identity.email ?: identity.displayName ?: identity.uid}."
+        authButton.text = "Sign out"
+        authButton.setOnClickListener { signOut() }
+    }
+
     private fun renderConfiguredState() {
         if (SenderBackendClient.isConfigured()) { statusChip.text = "Ready to load"; statusText.text = "Load registered Receivers from the connected backend." } else { statusChip.text = "Backend URL needed"; statusText.text = "This build needs its reachable HTTPS backend URL before it can load live devices." }
     }
 
     private fun loadReceivers() = lifecycleScope.launch {
-        refreshButton.isEnabled = false; statusChip.text = "Loading live devices"; statusText.text = "Reading enabled Receiver records from the backend…"
-        runCatching { SenderBackendClient.loadReceivers() }.onSuccess { receivers ->
+        refreshButton.isEnabled = false
+        refreshButton.text = "Refreshing…"
+        statusChip.text = "Loading live devices"
+        statusText.text = "Reading enabled Receiver records from the backend…"
+        if (authIdentity == null) {
+            authenticate()
+            refreshButton.isEnabled = true
+            refreshButton.text = "Load registered receivers"
+            return@launch
+        }
+        runCatching { SenderBackendClient.loadReceivers(authIdentity!!.idToken) }.onSuccess { receivers ->
             selectedReceiver = null; receiverCards.clear(); receiverList.removeAllViews(); lockComposer()
             receivers.forEach { receiver -> receiverList.addView(receiverCard(receiver), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }) }
             statusChip.text = if (receivers.isEmpty()) "No enabled Receivers" else "${receivers.size} registered Receiver(s)"
             statusText.text = if (receivers.isEmpty()) "No enabled Receiver records exist yet. Connect a real Receiver app first." else "Tap a device card to choose the exact Receiver for this notice."
-        }.onFailure { error -> statusChip.text = "Could not load devices"; statusText.text = error.message ?: "Backend request did not complete." }.also { refreshButton.isEnabled = true }
+        }.onFailure { error ->
+            statusChip.text = "Could not load devices"
+            statusText.text = error.message ?: "Backend request did not complete."
+        }.also {
+            refreshButton.isEnabled = true
+            refreshButton.text = "Refresh live receivers"
+        }
     }
 
     private fun receiverCard(receiver: LiveReceiver): MaterialCardView = MaterialCardView(this).apply {
@@ -139,11 +230,27 @@ class SenderActivity : ComponentActivity() {
         val target = selectedReceiver ?: run { resultText.text = "Choose a live Receiver first."; return@launch }
         val title = titleInput.text?.toString()?.trim().orEmpty(); val body = bodyInput.text?.toString()?.trim().orEmpty()
         when { title.isEmpty() -> { titleInput.error = "Enter a title"; return@launch }; body.isEmpty() -> { bodyInput.error = "Enter a message"; return@launch } }
-        sendButton.isEnabled = false; statusChip.text = "Sending"; statusText.text = "Sending through the backend and Firebase Cloud Messaging…"
-        runCatching { SenderBackendClient.sendTestNotice(target.receiverId, title, body) }.onSuccess { messageId ->
+        sendButton.isEnabled = false
+        sendButton.text = "Sending…"
+        statusChip.text = "Sending"
+        statusText.text = "Sending through the backend and Firebase Cloud Messaging…"
+        val token = authIdentity?.idToken ?: run {
+            authenticate()
+            sendButton.isEnabled = true
+            sendButton.text = "Send to selected receiver"
+            return@launch
+        }
+        runCatching { SenderBackendClient.sendTestNotice(target.receiverId, title, body, token) }.onSuccess { messageId ->
             statusChip.text = "Sent to FCM"; statusText.text = "The backend accepted the notice for ${target.label}."
             resultText.text = "Notice accepted for ${target.label}. FCM message ID: $messageId"; titleInput.setText(""); bodyInput.setText("")
-        }.onFailure { error -> statusChip.text = "Send did not complete"; statusText.text = error.message ?: "The backend could not send the notice."; resultText.text = "No notice was sent." }.also { sendButton.isEnabled = true }
+        }.onFailure { error ->
+            statusChip.text = "Send did not complete"
+            statusText.text = error.message ?: "The backend could not send the notice."
+            resultText.text = "No notice was sent."
+        }.also {
+            sendButton.isEnabled = true
+            sendButton.text = "Send to selected receiver"
+        }
     }
 
     private fun card() = MaterialCardView(this).apply { radius = dp(18).toFloat(); cardElevation = dp(1).toFloat(); setCardBackgroundColor(Color.WHITE); strokeColor = Color.parseColor("#E0E7E4"); strokeWidth = dp(1) }
