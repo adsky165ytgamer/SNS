@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -20,6 +21,7 @@ import app.sender.auth.GoogleAuthSession
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
@@ -28,27 +30,28 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-/** NoticeFlow Sender v1.1.0 Alpha: calm targeting, composition, and delivery history. */
+/** Sender mobile-first workspace. TV/panel layouts are intentionally out of scope. */
 class SenderActivity : ComponentActivity() {
     private val authSession by lazy { GoogleAuthSession(this) }
     private val history by lazy { SenderHistory(applicationContext) }
     private var authIdentity: AuthenticatedIdentity? = null
-    private var selectedReceiver: LiveReceiver? = null
     private val receivers = mutableListOf<LiveReceiver>()
+    private var selectedReceiver: LiveReceiver? = null
     private var activeSection = Section.HOME
+    private var selectedType = "Information"
+    private var selectedHistory: DeliveryRecord? = null
+    private lateinit var root: LinearLayout
     private lateinit var content: LinearLayout
-    private lateinit var nav: LinearLayout
-    private lateinit var statusChip: Chip
+    private lateinit var bottomNavigation: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var emailInput: TextInputEditText
     private lateinit var passwordInput: TextInputEditText
+    private lateinit var searchInput: TextInputEditText
     private lateinit var titleInput: TextInputEditText
     private lateinit var bodyInput: TextInputEditText
-    private var statusTitle = "Welcome to NoticeFlow"
-    private var statusDetail = "Use the short introduction to learn the new sender flow."
 
-    private enum class Section(val label: String) {
-        HOME("Home"), SEND("Send"), HISTORY("History"), ABOUT("About")
+    private enum class Section(val label: String, val icon: String) {
+        HOME("Home", "⌂"), NOTICES("Notices", "≡"), RECEIVERS("Receivers", "◎"), SETTINGS("Settings", "⚙")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,253 +60,229 @@ class SenderActivity : ComponentActivity() {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         window.isNavigationBarContrastEnforced = false
-        lifecycleScope.launch { authIdentity = runCatching { authSession.current() }.getOrNull() }
-        if (history.hasCompletedOnboarding()) showApplication() else showOnboarding()
+        lifecycleScope.launch { authIdentity = runCatching { authSession.current() }.getOrNull(); if (::root.isInitialized) renderSection(activeSection) }
+        buildShell()
     }
 
-    private fun showOnboarding() {
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1A1836"))
-            setPadding(dp(24), dp(24), dp(24), dp(30))
+    private fun buildShell() {
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(CANVAS) }
+        val appBar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(18), dp(20), dp(14)); setBackgroundColor(INK) }
+        appBar.addView(label("NOTICEFLOW  /  SENDER", MINT, 11f, Typeface.BOLD))
+        appBar.addView(label("Good to see you, sender.", Color.WHITE, 25f, Typeface.BOLD).apply { setPadding(0, dp(6), 0, 0) })
+        appBar.addView(label("A mobile control room for messages that need to arrive.", Color.parseColor("#D9D7F2"), 13f, Typeface.NORMAL).apply { setPadding(0, dp(4), 0, 0) })
+        root.addView(appBar)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(96)) }
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val action = MaterialButton(this).apply {
+            text = "+  Create Notice"
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            backgroundTintList = ColorStateList.valueOf(ACCENT)
+            setOnClickListener { renderComposer() }
         }
-        page.addView(label("NOTICEFLOW  /  SENDER", Color.parseColor("#CFC7FF"), 12f, Typeface.BOLD))
-        page.addView(label("Send with rhythm, not rush.", Color.WHITE, 31f, Typeface.BOLD).apply { setPadding(0, dp(18), 0, 0) })
-        page.addView(label("NoticeFlow keeps the sending path deliberate: account, target, message, delivery record.", Color.parseColor("#E5E2FF"), 16f, Typeface.NORMAL).apply { setPadding(0, dp(12), 0, dp(20)) })
-        page.addView(onboardingCard("01  Sign in with intent", "Your Email/Password account unlocks live receiver records. There is no shared sender identity."))
-        page.addView(onboardingCard("02  Choose the exact screen", "Pick a real named Receiver returned by the backend before the composer opens."), margins(top = 12))
-        page.addView(onboardingCard("03  Keep the story", "Every notice accepted by the backend is recorded in your private local delivery history."), margins(top = 12))
-        page.addView(primaryButton("Enter Sender workspace") { history.completeOnboarding(); showApplication() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(24) })
-        page.addView(label("v1.1.0 Alpha  ·  Crafted by ad_vibe_dev", Color.parseColor("#CFC7FF"), 12f, Typeface.BOLD).apply { gravity = Gravity.CENTER_HORIZONTAL; setPadding(0, dp(16), 0, 0) })
-        applyInsets(page, page, null)
-        setContentView(page)
-        page.alpha = 0f
-        page.animate().alpha(1f).setDuration(360L).start()
-    }
-
-    private fun showApplication() {
-        val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#F8F7FC")) }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(24), dp(22), dp(18)); setBackgroundColor(Color.parseColor("#1A1836")) }
-        header.addView(label("NOTICEFLOW  /  SENDER", Color.parseColor("#CFC7FF"), 11f, Typeface.BOLD))
-        header.addView(label("The dispatch room", Color.WHITE, 25f, Typeface.BOLD).apply { setPadding(0, dp(7), 0, 0) })
-        header.addView(label(authIdentity?.email ?: "Sign in to begin", Color.parseColor("#E5E2FF"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(4), 0, 0) })
-        page.addView(header)
-        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        page.addView(ScrollView(this).apply { addView(content) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(12), dp(8), dp(12), dp(8)); setBackgroundColor(Color.WHITE) }
-        Section.entries.forEach { section ->
-            nav.addView(MaterialButton(this).apply { text = section.label; isAllCaps = false; setOnClickListener { renderSection(section) } }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = if (section == Section.HOME) 0 else dp(5) })
-        }
-        page.addView(nav)
-        applyInsets(page, header, nav)
-        setContentView(page)
-        renderSection(activeSection)
+        root.addView(action, LinearLayout.LayoutParams(-1, dp(52)).apply { leftMargin = dp(18); rightMargin = dp(18); bottomMargin = dp(8) })
+        bottomNavigation = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(8), dp(7), dp(8), dp(8)); setBackgroundColor(Color.WHITE) }
+        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(72)))
+        applyInsets(root, appBar, bottomNavigation)
+        setContentView(root)
+        renderSection(Section.HOME)
     }
 
     private fun renderSection(section: Section) {
         activeSection = section
         content.removeAllViews()
-        navButtons(section)
+        bottomNavigation.removeAllViews()
+        Section.entries.forEach { item ->
+            val tab = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; isClickable = true; setOnClickListener { renderSection(item) } }
+            tab.addView(label(item.icon, if (item == section) ACCENT else MUTED, 22f, Typeface.BOLD).apply { gravity = Gravity.CENTER })
+            tab.addView(label(item.label, if (item == section) ACCENT else MUTED, 11f, if (item == section) Typeface.BOLD else Typeface.NORMAL).apply { gravity = Gravity.CENTER; setPadding(0, dp(2), 0, 0) })
+            bottomNavigation.addView(tab, LinearLayout.LayoutParams(0, -1, 1f))
+        }
         when (section) {
             Section.HOME -> renderHome()
-            Section.SEND -> renderSend()
-            Section.HISTORY -> renderHistory()
-            Section.ABOUT -> renderAbout()
+            Section.NOTICES -> renderNotices()
+            Section.RECEIVERS -> renderReceivers()
+            Section.SETTINGS -> renderSettings()
         }
-        content.alpha = 0f
-        content.translationY = dp(8).toFloat()
-        content.animate().alpha(1f).translationY(0f).setDuration(220L).start()
-    }
-
-    private fun navButtons(selected: Section) {
-        Section.entries.forEachIndexed { index, section ->
-            val button = nav.getChildAt(index) as MaterialButton
-            button.setTextColor(Color.parseColor(if (section == selected) "#FFFFFF" else "#433D78"))
-            button.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (section == selected) "#524B9D" else "#EEEFFF"))
-        }
+        animateContent()
     }
 
     private fun renderHome() {
-        val body = sectionBody()
-        statusChip = Chip(this).apply { text = readinessLabel(); isClickable = false; chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#E6E2FF")); setTextColor(Color.parseColor("#433D78")) }
-        body.addView(statusChip)
-        statusText = label(statusDetail, Color.parseColor("#5C5A68"), 15f, Typeface.NORMAL).apply { setPadding(0, dp(10), 0, dp(16)) }
-        body.addView(statusText)
-        body.addView(featureCard("Your next move", nextMove(), "Move through the workspace in order: account, target, message, and history."))
-        val recent = history.items().firstOrNull()
-        body.addView(featureCard("Recent delivery", recent?.title ?: "Nothing dispatched yet", recent?.let { "Sent to ${it.receiverName.ifBlank { it.receiverId.take(8) }}" } ?: "Your first accepted notice will appear here."), margins(top = 14))
-        body.addView(featureCard("Live capability", if (SenderBackendClient.isConfigured()) "Backend configured" else "Backend URL needed", "${if (authIdentity == null) "Account is not signed in." else "Account is active."} Receivers are only loaded from the live backend."), margins(top = 14))
-        content.addView(body)
-    }
-
-    private fun renderSend() {
-        val body = sectionBody()
-        body.addView(sectionTitle("Send a notice", "The composer opens only after a real Receiver is chosen."))
-        body.addView(accountCard(), margins(top = 14))
-        body.addView(targetCard(), margins(top = 14))
-        body.addView(composerCard(), margins(top = 14))
-        content.addView(body)
-    }
-
-    private fun accountCard(): MaterialCardView = card().apply {
-        addView(LinearLayout(this@SenderActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("1  ·  SENDER ACCOUNT", Color.parseColor("#524B9D"), 12f, Typeface.BOLD))
-            addView(label(authIdentity?.let { "Signed in as ${it.email ?: "Sender account"}." } ?: "Use the Email/Password account enabled in school-notics.", Color.parseColor("#5C5A68"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
-            if (authIdentity == null) {
-                emailInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS }
-                passwordInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-                addView(outlinedInput("Sender email", emailInput))
-                addView(outlinedInput("Password", passwordInput), margins(top = 10))
-                addView(primaryButton("Sign in securely") { signInWithEmail() }, margins(top = 14))
-                val actions = LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.HORIZONTAL }
-                actions.addView(secondaryButton("Create account") { createAccount() }, LinearLayout.LayoutParams(0, dp(46), 1f))
-                actions.addView(secondaryButton("Reset password") { resetPassword() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(8) })
-                addView(actions, margins(top = 8))
-            } else addView(secondaryButton("Sign out") { signOut() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)))
-        })
-    }
-
-    private fun targetCard(): MaterialCardView = card().apply {
-        addView(LinearLayout(this@SenderActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("2  ·  DELIVERY TARGET", Color.parseColor("#524B9D"), 12f, Typeface.BOLD))
-            addView(label("Only real enabled Receiver records are shown here. Select one exact device before writing.", Color.parseColor("#5C5A68"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
-            addView(primaryButton(if (receivers.isEmpty()) "Load live Receivers" else "Refresh live Receivers") { loadReceivers() })
-            if (selectedReceiver != null) addView(label("Selected  ·  ${selectedReceiver!!.label}", Color.parseColor("#524B9D"), 14f, Typeface.BOLD).apply { setPadding(0, dp(12), 0, 0) })
-            if (receivers.isNotEmpty()) {
-                receivers.forEach { receiver -> addView(receiverCard(receiver), margins(top = 10)) }
-            } else addView(label("No devices loaded yet. Sign in, then load the real Receiver list.", Color.parseColor("#7A7785"), 13f, Typeface.NORMAL).apply { setPadding(0, dp(12), 0, 0) })
-        })
-    }
-
-    private fun receiverCard(receiver: LiveReceiver): MaterialCardView = MaterialCardView(this).apply {
-        val isSelected = receiver.receiverId == selectedReceiver?.receiverId
-        radius = dp(16).toFloat(); cardElevation = 0f
-        setCardBackgroundColor(Color.parseColor(if (isSelected) "#E7E4FF" else "#F9F8FF"))
-        strokeColor = Color.parseColor(if (isSelected) "#524B9D" else "#DDD9F1")
-        strokeWidth = dp(if (isSelected) 2 else 1)
-        isClickable = true
-        addView(LinearLayout(this@SenderActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(14))
-            addView(label(receiver.label, Color.parseColor("#24213F"), 16f, Typeface.BOLD))
-            addView(label("${receiver.receiverId.take(10)}…  ·  ${receiver.lastSeenAt ?: "Registered device"}", Color.parseColor("#6C6878"), 12f, Typeface.NORMAL).apply { setPadding(0, dp(5), 0, 0) })
-        })
-        setOnClickListener { selectedReceiver = receiver; setStatus("Target selected", "${receiver.label} is selected. You can now write a notice."); renderSection(Section.SEND) }
-    }
-
-    private fun composerCard(): MaterialCardView = card().apply {
-        val unlocked = selectedReceiver != null
-        alpha = if (unlocked) 1f else .58f
-        addView(LinearLayout(this@SenderActivity).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("3  ·  WRITE AND DELIVER", Color.parseColor("#524B9D"), 12f, Typeface.BOLD))
-            addView(label(if (unlocked) "Writing for ${selectedReceiver!!.label}. Review your notice before you send it." else "Choose a live Receiver above to unlock the composer.", Color.parseColor("#5C5A68"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
-            titleInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); isEnabled = unlocked }
-            bodyInput = TextInputEditText(this@SenderActivity).apply { minLines = 4; maxLines = 7; gravity = Gravity.TOP; isEnabled = unlocked }
-            addView(outlinedInput("Notice title", titleInput))
-            addView(outlinedInput("Notice message", bodyInput), margins(top = 10))
-            addView(primaryButton("Send to selected Receiver") { sendNotice() }.apply { isEnabled = unlocked }, margins(top = 14))
-        })
-    }
-
-    private fun renderHistory() {
-        val body = sectionBody()
-        body.addView(sectionTitle("Delivery history", "Only notices accepted by the backend are stored here on this Sender device."))
+        content.addView(kicker("TODAY  /  SENDER DESK"))
+        content.addView(label(if (authIdentity == null) "Sign in, then make the first move." else "Make the next notice count.", INK, 29f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(6)) })
+        content.addView(label("Everything important is one tap away: create, choose, send, remember.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(18)) })
+        content.addView(primaryCard("Create a notice", "Start with a clear message and a real audience.", "＋") { renderComposer() })
+        content.addView(sectionLabel("AT A GLANCE"), margins(18))
         val records = history.items()
-        if (records.isEmpty()) body.addView(featureCard("No deliveries yet", "Your activity will appear here", "Send the first real notice from the Send section."), margins(top = 14))
-        else {
-            records.forEach { record -> body.addView(featureCard(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(record.sentAt)), record.title, "To ${record.receiverName.ifBlank { record.receiverId }}\n${record.body}"), margins(top = 10)) }
-            body.addView(secondaryButton("Clear local history") { history.clear(); renderSection(Section.HISTORY) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
-        }
-        content.addView(body)
+        val live = receivers.count()
+        content.addView(statRow("Receivers", if (live == 0) "Not loaded" else "$live available", "Open Receivers to refresh the live list"))
+        content.addView(statRow("Notices", records.size.toString(), "Saved on this Sender device"), margins(8))
+        content.addView(statRow("Connection", if (SenderBackendClient.isConfigured()) "Backend ready" else "Needs URL", "Authenticated requests only"), margins(8))
+        content.addView(sectionLabel("RECENT NOTICES"), margins(20))
+        records.take(2).forEach { content.addView(historyCard(it), margins(8)) }
+        if (records.isEmpty()) content.addView(emptyCard("Your notice history is waiting", "Accepted deliveries will appear here with their recipient and timestamp."), margins(8))
     }
 
-    private fun renderAbout() {
-        val body = sectionBody()
-        body.addView(sectionTitle("NoticeFlow Sender", "A deliberate control room for school-wide communication."))
-        body.addView(featureCard("v1.1.0 Alpha", "Separate spaces, clearer intent", "This Alpha release adds guided onboarding, multi-section navigation, and local delivery history."), margins(top = 14))
-        body.addView(featureCard("Created by", "ad_vibe_dev", "NoticeFlow is designed as a proprietary school communication product."), margins(top = 14))
-        body.addView(featureCard("License and access", "Proprietary — not open source", "No permission is granted to copy, redistribute, reverse engineer, or publish this application or its source without written authorization from the creator."), margins(top = 14))
-        body.addView(secondaryButton("Replay introduction") { history.resetOnboarding(); showOnboarding() }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { topMargin = dp(16) })
-        content.addView(body)
+    private fun renderNotices() {
+        content.addView(kicker("NOTICES  /  HISTORY"))
+        content.addView(label("Your notice trail", INK, 28f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(label("Every card below is a local record of a dispatch accepted by the live backend.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(16)) })
+        val records = history.items()
+        if (records.isEmpty()) content.addView(emptyCard("No notices sent yet", "Create a notice, choose a live Receiver, and your delivery trail begins here."))
+        else records.forEach { content.addView(historyCard(it), margins(10)) }
     }
 
-    private fun signInWithEmail() = lifecycleScope.launch {
+    private fun renderReceivers() {
+        content.addView(kicker("RECEIVERS  /  LIVE TARGETS"))
+        content.addView(label("Choose a classroom", INK, 28f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(label("Tap a card to select the exact device that should receive your notice.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(14)) })
+        val search = TextInputEditText(this).apply { setSingleLine(); hint = "Search classrooms or device names"; inputType = InputType.TYPE_CLASS_TEXT }
+        searchInput = search
+        content.addView(outlinedInput("Search", search), margins(0))
+        content.addView(primaryButton(if (receivers.isEmpty()) "Load live Receivers" else "Refresh live Receivers") { loadReceivers() }, margins(12))
+        if (receivers.isEmpty()) content.addView(emptyCard("No live targets loaded", "Sign in and load the real Receiver records from the backend."), margins(12))
+        filteredReceivers().forEach { content.addView(receiverCard(it), margins(10)) }
+    }
+
+    private fun renderSettings() {
+        content.addView(kicker("SETTINGS  /  PROFILE"))
+        content.addView(label("Your sender identity", INK, 28f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(label("Keep your account and connection details close, without crowding the sending flow.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(16)) })
+        content.addView(accountCard())
+        content.addView(settingsCard("Connection status", if (SenderBackendClient.isConfigured()) "Backend URL configured" else "Backend URL needs configuration", "Protected requests use Firebase ID tokens."), margins(10))
+        content.addView(settingsCard("Notifications", "FCM delivery enabled", "Receiver devices handle notification presentation."), margins(10))
+        content.addView(settingsCard("Diagnostics", "Open live connection checks", "Use the status and receiver refresh actions to troubleshoot."), margins(10))
+        content.addView(settingsCard("About", "NoticeFlow v1.1.0 Alpha", "Created by ad_vibe_dev · Proprietary software · Not open source"), margins(10))
+    }
+
+    private fun renderComposer() {
+        content.removeAllViews()
+        bottomNavigation.removeAllViews()
+        content.addView(kicker("CREATE NOTICE  /  STEP 1 OF 3"))
+        content.addView(label("Make it clear.", INK, 29f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(label("Choose a type, write the message, preview it, and send only after selecting a real target.", MUTED, 15f, Typeface.NORMAL).apply { setPadding(0, 0, 0, dp(16)) })
+        content.addView(sectionLabel("NOTICE TYPE"))
+        val chips = ChipGroup(this).apply { isSingleSelection = true; setPadding(0, dp(8), 0, dp(18)) }
+        listOf("Homework", "Important", "Information").forEach { type -> chips.addView(Chip(this).apply { text = type; isCheckable = true; isChecked = type == selectedType; setOnCheckedChangeListener { _, checked -> if (checked) selectedType = type } }) }
+        content.addView(chips)
+        titleInput = TextInputEditText(this).apply { setSingleLine(); hint = "Example: English homework" }
+        bodyInput = TextInputEditText(this).apply { minLines = 5; gravity = Gravity.TOP; hint = "Write the notice students should see" }
+        content.addView(outlinedInput("Title", titleInput))
+        content.addView(outlinedInput("Description", bodyInput), margins(12))
+        content.addView(sectionLabel("RECIPIENT"), margins(18))
+        content.addView(targetSummaryCard(), margins(8))
+        content.addView(primaryButton("Choose recipients") { renderReceiversForComposer() }, margins(12))
+        content.addView(secondaryButton("Preview notice") { showPreview() }, margins(8))
+    }
+
+    private fun renderReceiversForComposer() {
+        renderReceivers()
+        content.addView(primaryButton("Use selected recipient") { if (selectedReceiver != null) renderComposer() else setTransient("Select a Receiver card first") }, margins(14))
+    }
+
+    private fun showPreview() {
+        val title = titleInput.text?.toString()?.trim().orEmpty()
+        val body = bodyInput.text?.toString()?.trim().orEmpty()
+        if (title.isBlank() || body.isBlank() || selectedReceiver == null) { setTransient("Choose a type, write a message, and select a recipient first"); return }
+        content.removeAllViews()
+        content.addView(kicker("CREATE NOTICE  /  PREVIEW"))
+        content.addView(label("Ready to send?", INK, 29f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(14)) })
+        content.addView(featureCard(selectedType, title, body))
+        content.addView(label("To  ${selectedReceiver!!.label}", ACCENT, 16f, Typeface.BOLD).apply { setPadding(0, dp(16), 0, dp(8)) })
+        content.addView(primaryButton("Send Notice") { sendNotice(title, body) }, margins(8))
+        content.addView(secondaryButton("Edit notice") { renderComposer() }, margins(8))
+    }
+
+    private fun sendNotice(title: String, body: String) = lifecycleScope.launch {
+        val receiver = selectedReceiver ?: return@launch
+        val token = authIdentity?.idToken
+        if (token == null) { setTransient("Sign in before sending a notice"); renderSection(Section.SETTINGS); return@launch }
+        val result = runCatching { withContext(Dispatchers.IO) { SenderBackendClient.sendTestNotice(receiver.receiverId, title, body, token) } }
+        result.onSuccess { messageId -> history.record(receiver, title, body, messageId); selectedReceiver = null; renderSection(Section.NOTICES) }
+            .onFailure { setTransient(it.message ?: "Delivery needs attention") }
+    }
+
+    private fun loadReceivers() = lifecycleScope.launch {
+        val token = authIdentity?.idToken
+        if (token == null) { setTransient("Sign in before loading live Receivers"); renderSection(Section.SETTINGS); return@launch }
+        val result = runCatching { withContext(Dispatchers.IO) { SenderBackendClient.loadReceivers(token) } }
+        result.onSuccess { receivers.clear(); receivers.addAll(it); selectedReceiver = null; renderSection(Section.RECEIVERS) }
+            .onFailure { setTransient(it.message ?: "Could not load Receivers") }
+    }
+
+    private fun signIn() = lifecycleScope.launch {
         runCatching { authSession.signInWithEmail(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { authIdentity = it; setStatus("Account connected", "Your Sender account is ready. Load the live Receiver list next."); renderSection(Section.SEND) }
-            .onFailure { setStatus("Sign-in needs attention", it.message ?: "Firebase authentication did not complete."); renderSection(Section.SEND) }
+            .onSuccess { authIdentity = it; setTransient("Account connected"); renderSection(Section.HOME) }
+            .onFailure { setTransient(it.message ?: "Sign-in needs attention") }
     }
 
     private fun createAccount() = lifecycleScope.launch {
         runCatching { authSession.createEmailAccount(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
-            .onSuccess { authIdentity = it; setStatus("Account created", "Your Sender account is ready. Load the live Receiver list next."); renderSection(Section.SEND) }
-            .onFailure { setStatus("Could not create account", it.message ?: "Firebase authentication did not complete."); renderSection(Section.SEND) }
+            .onSuccess { authIdentity = it; setTransient("Account created"); renderSection(Section.HOME) }
+            .onFailure { setTransient(it.message ?: "Could not create account") }
     }
 
     private fun resetPassword() = lifecycleScope.launch {
         val result = runCatching { authSession.sendPasswordReset(emailInput.text?.toString().orEmpty()) }
-        setStatus(if (result.isSuccess) "Reset email sent" else "Reset needs attention", result.exceptionOrNull()?.message ?: "Check your inbox, set a new password, then return here.")
-        renderSection(Section.SEND)
+        setTransient(if (result.isSuccess) "Reset email sent" else result.exceptionOrNull()?.message ?: "Reset needs attention")
     }
 
-    private fun signOut() = lifecycleScope.launch {
-        authSession.signOut(); authIdentity = null; receivers.clear(); selectedReceiver = null
-        setStatus("Signed out", "Sign in to load live Receivers and send notices.")
-        renderSection(Section.SEND)
+    private fun signOut() = lifecycleScope.launch { authSession.signOut(); authIdentity = null; receivers.clear(); selectedReceiver = null; setTransient("Signed out"); renderSection(Section.SETTINGS) }
+
+    private fun accountCard(): MaterialCardView = card().apply {
+        addView(LinearLayout(this@SenderActivity).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(label("SENDER ACCOUNT", ACCENT, 11f, Typeface.BOLD))
+            addView(label(authIdentity?.email ?: "Sign in with the Email/Password account enabled in school-notics.", MUTED, 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
+            if (authIdentity == null) {
+                emailInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS }
+                passwordInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+                addView(outlinedInput("Email", emailInput))
+                addView(outlinedInput("Password", passwordInput), margins(10))
+                addView(primaryButton("Sign in securely") { signIn() }, margins(12))
+                val row = LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(secondaryButton("Create account") { createAccount() }, LinearLayout.LayoutParams(0, dp(46), 1f))
+                row.addView(secondaryButton("Reset") { resetPassword() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(8) })
+                addView(row, margins(8))
+            } else addView(secondaryButton("Sign out") { signOut() }, LinearLayout.LayoutParams(-2, dp(46)))
+        })
     }
 
-    private fun loadReceivers() = lifecycleScope.launch {
-        val identity = authIdentity
-        if (identity == null) { setStatus("Account required", "Sign in before loading live Receivers."); renderSection(Section.SEND); return@launch }
-        setStatus("Loading live Receivers", "Reading enabled Receiver records from the backend…")
-        val result = runCatching { withContext(Dispatchers.IO) { SenderBackendClient.loadReceivers(identity.idToken) } }
-        result.onSuccess { list ->
-            receivers.clear(); receivers.addAll(list); selectedReceiver = null
-            setStatus(if (list.isEmpty()) "No Receivers ready" else "${list.size} Receiver${if (list.size == 1) "" else "s"} ready", if (list.isEmpty()) "Connect a real Receiver app first." else "Choose one exact named screen.")
-        }.onFailure { setStatus("Could not load devices", it.message ?: "Backend request did not complete.") }
-        renderSection(Section.SEND)
+    private fun receiverCard(receiver: LiveReceiver): MaterialCardView = card().apply {
+        val selected = receiver.receiverId == selectedReceiver?.receiverId
+        setCardBackgroundColor(Color.parseColor(if (selected) "#E5E1FF" else "#FFFFFF")); strokeColor = Color.parseColor(if (selected) "#6154C7" else "#E3E1ED"); strokeWidth = dp(if (selected) 2 else 1); isClickable = true
+        addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(15), dp(16), dp(15)); addView(label(receiver.label, INK, 17f, Typeface.BOLD)); addView(label("●  Online · ${receiver.receiverId.take(8)}…", Color.parseColor("#438A69"), 13f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) }) })
+        setOnClickListener { selectedReceiver = receiver; renderSection(Section.RECEIVERS) }
     }
 
-    private fun sendNotice() = lifecycleScope.launch {
-        val receiver = selectedReceiver ?: return@launch
-        val title = titleInput.text?.toString()?.trim().orEmpty()
-        val body = bodyInput.text?.toString()?.trim().orEmpty()
-        if (title.isBlank() || body.isBlank()) { setStatus("Write the notice first", "Both a title and message are required before dispatch."); renderSection(Section.SEND); return@launch }
-        val token = authIdentity?.idToken ?: return@launch
-        setStatus("Delivering notice", "Sending to ${receiver.label} through the live backend…")
-        val result = runCatching { withContext(Dispatchers.IO) { SenderBackendClient.sendTestNotice(receiver.receiverId, title, body, token) } }
-        result.onSuccess { messageId ->
-            history.record(receiver, title, body, messageId)
-            setStatus("Notice accepted", "${receiver.label} accepted the dispatch. It is now in your delivery history.")
-            selectedReceiver = null
-        }.onFailure { setStatus("Delivery needs attention", it.message ?: "The backend could not send the notice.") }
-        renderSection(if (result.isSuccess) Section.HISTORY else Section.SEND)
+    private fun filteredReceivers(): List<LiveReceiver> {
+        if (!::searchInput.isInitialized) return receivers
+        val query = searchInput.text?.toString()?.trim()?.lowercase().orEmpty()
+        return receivers.filter { query.isBlank() || it.label.lowercase().contains(query) || it.receiverId.lowercase().contains(query) }
     }
 
-    private fun readinessLabel(): String = when {
-        !SenderBackendClient.isConfigured() -> "Backend URL needed"
-        authIdentity == null -> "Account required"
-        else -> "Ready to send"
-    }
-    private fun nextMove(): String = when {
-        authIdentity == null -> "Sign in to your Sender account"
-        receivers.isEmpty() -> "Load live Receivers"
-        selectedReceiver == null -> "Choose one delivery target"
-        else -> "Write and send the notice"
-    }
-    private fun setStatus(title: String, detail: String) { statusTitle = title; statusDetail = detail; if (::statusChip.isInitialized) statusChip.text = title; if (::statusText.isInitialized) statusText.text = detail }
-
-    private fun sectionBody() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(24)) }
-    private fun sectionTitle(title: String, detail: String) = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(label(title, Color.parseColor("#24213F"), 26f, Typeface.BOLD)); addView(label(detail, Color.parseColor("#5C5A68"), 15f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, 0) }) }
-    private fun featureCard(eyebrow: String, title: String, detail: String): MaterialCardView = card().apply { addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18)); addView(label(eyebrow.uppercase(), Color.parseColor("#524B9D"), 11f, Typeface.BOLD)); addView(label(title, Color.parseColor("#24213F"), 18f, Typeface.BOLD).apply { setPadding(0, dp(6), 0, 0) }); addView(label(detail, Color.parseColor("#5C5A68"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, 0) }) }) }
-    private fun onboardingCard(title: String, detail: String): MaterialCardView = MaterialCardView(this).apply { radius = dp(18).toFloat(); setCardBackgroundColor(Color.parseColor("#27244E")); strokeColor = Color.parseColor("#58528C"); strokeWidth = dp(1); addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(16), dp(18), dp(16)); addView(label(title, Color.parseColor("#CFC7FF"), 13f, Typeface.BOLD)); addView(label(detail, Color.parseColor("#F0EFFF"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) }) }) }
+    private fun targetSummaryCard(): MaterialCardView = if (selectedReceiver == null) emptyCard("No recipient selected", "Choose a classroom-style Receiver card before sending.") else featureCard("RECIPIENT", selectedReceiver!!.label, "This notice will be sent to the selected live device.")
+    private fun historyCard(record: DeliveryRecord): MaterialCardView = featureCard(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(record.sentAt)), record.title, "${record.receiverName.ifBlank { record.receiverId }}  ·  Sent\n${record.body}").apply { setOnClickListener { selectedHistory = record; showHistoryDetail(record) } }
+    private fun showHistoryDetail(record: DeliveryRecord) { content.removeAllViews(); bottomNavigation.removeAllViews(); content.addView(kicker("NOTICE DETAIL")); content.addView(label(record.title, INK, 29f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, dp(8)) }); content.addView(featureCard("TYPE", "Notice", record.body)); content.addView(settingsCard("Recipients", record.receiverName.ifBlank { record.receiverId }, "Delivery accepted by the backend"), margins(10)); content.addView(settingsCard("Sent", DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(record.sentAt)), "Message ID  ${record.messageId.take(12)}"), margins(10)); content.addView(secondaryButton("Back to notice history") { renderSection(Section.NOTICES) }, margins(16)) }
+    private fun featureCard(eyebrow: String, title: String, detail: String): MaterialCardView = card().apply { addView(LinearLayout(this@SenderActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18)); addView(label(eyebrow.uppercase(), ACCENT, 11f, Typeface.BOLD)); addView(label(title, INK, 18f, Typeface.BOLD).apply { setPadding(0, dp(6), 0, 0) }); addView(label(detail, MUTED, 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, 0) }) }) }
+    private fun primaryCard(title: String, detail: String, glyph: String, action: () -> Unit): MaterialCardView = featureCard("QUICK ACTION", title, detail).apply { addView(primaryButton("$glyph  Open") { action() }) }
+    private fun statRow(title: String, value: String, detail: String): MaterialCardView = featureCard(title, value, detail)
+    private fun settingsCard(title: String, value: String, detail: String): MaterialCardView = featureCard(title, value, detail)
+    private fun emptyCard(title: String, detail: String): MaterialCardView = featureCard("EMPTY STATE", title, detail)
     private fun card() = MaterialCardView(this).apply { radius = dp(20).toFloat(); cardElevation = dp(1).toFloat(); setCardBackgroundColor(Color.WHITE); strokeColor = Color.parseColor("#E3E1ED"); strokeWidth = dp(1) }
-    private fun primaryButton(text: String, action: () -> Unit) = MaterialButton(this).apply { this.text = text; setOnClickListener { action() } }
-    private fun secondaryButton(text: String, action: () -> Unit) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply { this.text = text; isAllCaps = false; setOnClickListener { action() } }
+    private fun kicker(text: String) = label(text, ACCENT, 11f, Typeface.BOLD)
+    private fun sectionLabel(text: String) = label(text, MUTED, 11f, Typeface.BOLD)
     private fun outlinedInput(hint: String, input: TextInputEditText) = TextInputLayout(this).apply { this.hint = hint; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE; if (hint == "Password") endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE; addView(input) }
-    private fun margins(top: Int = 0) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
+    private fun primaryButton(text: String, action: () -> Unit) = MaterialButton(this).apply { this.text = text; isAllCaps = false; setOnClickListener { action() } }
+    private fun secondaryButton(text: String, action: () -> Unit) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply { this.text = text; isAllCaps = false; setOnClickListener { action() } }
     private fun label(text: String, color: Int, size: Float, style: Int) = TextView(this).apply { this.text = text; setTextColor(color); textSize = size; typeface = Typeface.create("sans", style) }
+    private fun margins(top: Int) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-    private fun applyInsets(page: View, header: View, bottom: View?) { ViewCompat.setOnApplyWindowInsetsListener(page) { _, insets -> val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()); header.setPadding(header.paddingLeft + safe.left, header.paddingTop + safe.top, header.paddingRight + safe.right, header.paddingBottom); bottom?.setPadding(bottom.paddingLeft + safe.left, bottom.paddingTop, bottom.paddingRight + safe.right, bottom.paddingBottom + safe.bottom); insets }; ViewCompat.requestApplyInsets(page) }
+    private fun animateContent() { content.alpha = 0f; content.translationY = dp(8).toFloat(); content.animate().alpha(1f).translationY(0f).setDuration(190L).start() }
+    private fun setTransient(message: String) { if (::statusText.isInitialized) statusText.text = message; android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show() }
+    private fun applyInsets(view: View, top: View, bottom: View) { ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets -> val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()); top.setPadding(top.paddingLeft + safe.left, top.paddingTop + safe.top, top.paddingRight + safe.right, top.paddingBottom); bottom.setPadding(bottom.paddingLeft + safe.left, bottom.paddingTop, bottom.paddingRight + safe.right, bottom.paddingBottom + safe.bottom); insets }; ViewCompat.requestApplyInsets(view) }
+
+    companion object { private val CANVAS = Color.parseColor("#F8F7FC"); private val INK = Color.parseColor("#24213F"); private val MUTED = Color.parseColor("#6C6878"); private val ACCENT = Color.parseColor("#6154C7"); private val MINT = Color.parseColor("#A9F0DB") }
 }

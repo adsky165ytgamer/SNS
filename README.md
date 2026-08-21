@@ -1,22 +1,31 @@
-# NoticeFlow Sender
+# NoticeFlow Sender — Mobile-first Android app
 
-> **v1.1.0 Alpha** · Created by **ad_vibe_dev** · **Proprietary software — not open source**
+> **v1.1.0 Alpha · app.sender · Created by ad_vibe_dev · Proprietary / not open source**
 
-NoticeFlow Sender is the Android control surface for selecting live named Receiver devices and dispatching school notices. Its application package is `app.sender`.
+NoticeFlow Sender is a mobile control room for composing and delivering school notices to real named Receiver devices. This release focuses on the phone experience only. Android TV, classroom-panel, and large-screen presentation work remain intentionally separate.
 
-## v1.1.0 Alpha experience
+## Mobile experience
 
-The Sender has been rebuilt as a multi-section workspace rather than a single long form. A first-run introduction explains the secure account, live target, notice composition, and delivery-history path. After onboarding, the application provides **Home**, **Send**, **History**, and **About** sections. Home identifies the next useful action, Send separates authentication, targeting, and writing, History records notices accepted by the backend, and About records the version, creator, and license status.
+The app is organized around four bottom-navigation destinations: **Home**, **Notices**, **Receivers**, and **Settings**. Home provides a greeting, status summary, prominent **Create Notice** action, recent activity, receiver availability, and connection state. Notices presents a chronological local delivery history and opens individual notice details with type, recipient, sent time, message ID, and delivery state. Receivers replaces a cramped dropdown with searchable, tappable target cards. Settings contains the sender account, connection status, notifications, diagnostics, About, and license information.
 
-The Sender uses Firebase Email/Password authentication and a Firebase ID token for every protected API call. It loads only real enabled Receivers returned by the backend, requires the operator to select one explicit named device before the composer opens, and records successful backend acceptances in a private local delivery history.
+Create Notice is a focused step-by-step mobile flow. The sender chooses a notice type, writes a title and description, chooses a real Receiver card, previews the complete message, and sends only after the target is explicit. The screen uses phone-sized spacing, large touch targets, edge-to-edge insets, navigation-bar protection, and short transition animations instead of stretching a desktop-like layout.
 
-## Install and configure
+## Live behavior
 
-Download the current APK from [Releases](https://github.com/adsky165ytgamer/SNS/releases). Install it on the sender device, create or use an Email/Password account enabled in the original `school-notics` Firebase project, then load live Receivers from the permanent HTTPS backend.
+Firebase Email/Password authentication remains the primary session. The Sender obtains a Firebase ID token and attaches it to protected API requests. Receiver cards are loaded from the live backend; no classroom names, online states, IDs, or delivery results are fabricated. A locally stored delivery history records only notices accepted by the backend.
 
-To build locally, copy `gradle.properties.example` to `gradle.properties` and add the permanent backend URL plus public Firebase client metadata. Never commit `google-services.json`, local Gradle properties, keystores, Firebase Admin credentials, FCM server credentials, or private keys.
+## Build
 
-## License
+Copy `gradle.properties.example` to `gradle.properties`, fill in the permanent HTTPS backend URL and public Firebase client metadata for `school-notics`, then build only the Sender module:
 
-This repository and application are proprietary. No permission is granted to copy, redistribute, reverse engineer, modify, publish, or use the source or binaries without written authorization from **ad_vibe_dev**.
+```bash
+cp gradle.properties.example gradle.properties
+cd android
+../gradle-8.13/bin/gradle :sender-app:assembleDebug
+```
 
+The package is `app.sender`, version `1.1.0-alpha`, version code `3`. The matching APK is available from the [v1.1.0 Alpha release](https://github.com/adsky165ytgamer/SNS/releases/tag/v1.1.0-alpha).
+
+## Proprietary license
+
+This application and repository are proprietary and are not open source. No permission is granted to copy, redistribute, reverse engineer, modify, publish, or use the source or APK without written authorization from **ad_vibe_dev**. Never commit `google-services.json`, local Gradle properties, keystores, Firebase Admin credentials, FCM server credentials, or private keys.
