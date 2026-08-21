@@ -51,13 +51,13 @@ The Receiver uses the existing local `google-services.json` for `app.receiver` i
 
 The backend test suite passes all five tests, including registration privacy, missing receiver handling, invalid FCM token mapping, malformed JSON handling, and rejection of missing Firebase credentials. The backend TypeScript build passes with `npm run build`.
 
-Both Android modules compile and package successfully with Gradle 8.13 and the cached Android SDK. The Receiver APK is `app.receiver`, version `0.1.1`; the Sender APK is `app.sender`, version `0.1.1`. The backend test suite passes all five tests and the TypeScript build passes. APK metadata was inspected with Android build tools. No physical Android device or emulator was attached in this sandbox, so FCM delivery and the interactive Credential Manager sheet remain device-level validation steps.
+Both Android modules compile and package successfully with Gradle 8.13 and the cached Android SDK. The Receiver APK is `app.receiver`, version `0.1.1`; the Sender APK is `app.sender`, version `0.1.1`. The backend test suite passes all five tests and the TypeScript build passes. APK metadata was inspected with Android build tools. The authentication helper now preserves the underlying Google and Firebase error messages, so the Sender no longer collapses every failure into an unexplained generic warning. No physical Android device or emulator was attached in this sandbox, so FCM delivery and the interactive Credential Manager sheet remain device-level validation steps.
 
 ## Required user-side configuration before a real APK test
 
 The production Web OAuth client ID may be entered into `android/gradle.properties` as `GOOGLE_WEB_CLIENT_ID` to activate preferred Google Sign-In. For the no-blocking fallback, enable Firebase Anonymous Auth in `school-notics`; no OAuth client ID is needed. The backend must be deployed at a permanent HTTPS URL and that URL must replace `BACKEND_BASE_URL` in the shared Gradle properties.
 
-The Firebase Authentication provider for Google must be enabled in the `school-notics` Firebase project. The Android test devices must use Google Play services and have a Google account permitted by the project’s authentication configuration.
+The Firebase Authentication provider for Google must be enabled in the `school-notics` Firebase project for the preferred Google path. If the Web OAuth client ID is still unavailable, Firebase Anonymous Auth must be enabled for the secure device-session fallback. The Android test devices must use Google Play services and have a Google account permitted by the project’s authentication configuration.
 
 ## Credential rotation requirement
 

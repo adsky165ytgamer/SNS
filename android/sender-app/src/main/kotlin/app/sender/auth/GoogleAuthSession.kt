@@ -39,15 +39,27 @@ class GoogleAuthSession(activity: ComponentActivity) {
     }
 
     suspend fun signIn(): AuthenticatedIdentity {
+        var googleFailure: Throwable? = null
         if (isGoogleConfigured()) {
             try {
                 return googleSignIn()
-            } catch (_: Throwable) {
-                // Continue with a Firebase-authenticated device session.
+            } catch (error: Throwable) {
+                googleFailure = error
             }
         }
-        return anonymousSignIn()
+        return try {
+            anonymousSignIn()
+        } catch (error: Throwable) {
+            val googlePart = googleFailure?.let { " Google: ${describe(it)}." } ?: ""
+            throw IllegalStateException(
+                "Firebase authentication could not start.$googlePart Secure device session: ${describe(error)}. Enable Anonymous Auth in school-notics or configure the Web OAuth client ID.",
+                error,
+            )
+        }
     }
+
+    private fun describe(error: Throwable): String =
+        error.message?.takeIf { it.isNotBlank() } ?: error::class.simpleName.orEmpty()
 
     suspend fun signOut() {
         auth.signOut()
