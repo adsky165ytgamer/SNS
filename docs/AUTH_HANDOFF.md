@@ -6,7 +6,9 @@ This handoff records the Google Sign-In and authenticated API upgrade for the Sc
 
 The authentication boundary is now:
 
-> Google account on Android → Firebase Auth credential → Firebase ID token → Fastify `Authorization: Bearer <token>` → Firebase Admin `verifyIdToken()` → Firestore and FCM.
+> Email/Password account on Android → Firebase Auth credential → Firebase ID token → Fastify `Authorization: Bearer <token>` → Firebase Admin `verifyIdToken()` → Firestore and FCM.
+
+Google Sign-In remains optional code, but Email/Password is the primary user flow for both applications.
 
 The Android applications never receive or embed the Firebase Admin service-account private key, an FCM server key, or any other backend credential.
 
@@ -31,9 +33,9 @@ For backwards-compatible unit tests, `createApp()` still permits an omitted veri
 
 ## Android implementation
 
-Both apps use Firebase Auth and verified ID tokens. Receiver retains its Google/secure-session path. Sender now uses the Email/Password provider enabled in `school-notics`, with sign-in, account creation, password reset, session restoration, and sign-out controls. Google Sign-In remains optional code for Sender but is no longer required for Sender operation. The activities expose visible authentication cards and use the resulting Firebase ID token for protected backend requests.
+Both apps use Firebase Auth and verified ID tokens. Receiver now uses the Email/Password provider enabled in `school-notics`, with sign-in, account creation, password reset, session restoration, and sign-out controls. Google Sign-In remains optional code but is not required for operation. Both activities expose visible account cards and use the resulting Firebase ID token for protected backend requests.
 
-The Receiver flow is: authenticate with Google when configured or use the secure Firebase device-session fallback, initialize the original `school-notics` Firebase project, obtain the real Firebase installation ID and FCM token, then call the registration endpoint with the Bearer token. The background heartbeat worker and FCM token-refresh registration path also obtain the current Firebase ID token before calling the backend. No protected request is intentionally sent without a token.
+The Receiver flow is: sign in or create an Email/Password account, choose an editable human-readable device name, initialize the original `school-notics` Firebase project, obtain the real Firebase installation ID and FCM token, then call the registration endpoint with the Bearer token. The name is persisted locally and is also used by background heartbeat and FCM-token refresh registration. The redesigned UI guides the user through Account, Device Name, Connect, and Notice Inbox stages with inset-safe layout and staggered entrance motion. No protected request is intentionally sent without a token.
 
 The Sender flow is: enter the Firebase Email/Password account, sign in or create the account, obtain a Firebase ID token, load real enabled receiver records with the Bearer token, select one returned device, compose a notice, and send it with the same authenticated API path. Sender uses a manual Firebase bootstrap from the original project’s public client metadata and does not require a package-specific Sender JSON file for Email/Password Auth. The UI does not fabricate receiver names, IDs, or status data.
 
@@ -51,7 +53,7 @@ The Receiver uses the existing local `google-services.json` for `app.receiver` i
 
 The backend test suite passes all five tests, including registration privacy, missing receiver handling, invalid FCM token mapping, malformed JSON handling, and rejection of missing Firebase credentials. The backend TypeScript build passes with `npm run build`.
 
-Both Android modules compile and package successfully with Gradle 8.13 and the cached Android SDK. The Receiver APK is `app.receiver`, version `0.1.1`; the Sender APK is `app.sender`, version `0.1.1`. The backend test suite passes all five tests and the TypeScript build passes. APK metadata was inspected with Android build tools. The authentication helper now preserves the underlying Google and Firebase error messages, so the Sender no longer collapses every failure into an unexplained generic warning. No physical Android device or emulator was attached in this sandbox, so FCM delivery and the interactive Credential Manager sheet remain device-level validation steps.
+Both redesigned Android modules compile and package successfully with Gradle 8.13 and the cached Android SDK. The Receiver APK is `app.receiver`, version `0.1.1`; the Sender APK is `app.sender`, version `0.1.1`. The backend test suite passes all five tests and the TypeScript build passes. APK metadata was inspected with Android build tools. Both screens now use edge-to-edge system-bar and display-cutout insets, guided steps, clear error states, and short staggered animations. No physical Android device or emulator was attached in this sandbox, so FCM delivery remains a device-level validation step.
 
 ## Required user-side configuration before a real APK test
 
@@ -68,8 +70,8 @@ The service-account JSON and FCM credential previously pasted into chat must be 
 1. Replace the OAuth client ID and permanent backend URL in the local Android build properties.
 2. Place the correct Firebase configuration file in each module locally, without committing it.
 3. Build and install both apps.
-4. Authenticate the Receiver using its configured session and connect it. Confirm a `receivers/{receiverId}` document contains the correct `ownerUid`, a current FCM token, and a refreshed `lastSeenAt`.
-5. Create or use the Sender Email/Password account, sign in, refresh the live receiver list, select the real Receiver, and send a notice.
+4. Create or use the Receiver Email/Password account, choose a device name, and connect it. Confirm a `receivers/{receiverId}` document contains the correct `ownerUid`, the chosen `name`, a current FCM token, and a refreshed `lastSeenAt`.
+5. Create or use the Sender Email/Password account, sign in, refresh the live receiver list, select the named Receiver, and send a notice.
 6. Confirm the Receiver displays the high-priority notification and local history entry, and confirm a corresponding document appears in `notices/{noticeId}`.
 7. Sign out or use an expired token and confirm the backend returns `401 AUTH_REQUIRED` rather than performing a protected operation.
 

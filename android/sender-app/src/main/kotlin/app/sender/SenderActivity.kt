@@ -65,14 +65,15 @@ class SenderActivity : ComponentActivity() {
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#F6F8F7")) }
         val header = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(28), dp(24), dp(22)); setBackgroundColor(Color.parseColor("#0E5D5A")) }
         header.addView(label("NOTICEFLOW / SENDER", Color.parseColor("#CCF2E8"), 12f, Typeface.BOLD))
-        header.addView(label("Choose. Write. Send.", Color.WHITE, 28f, Typeface.BOLD).apply { setPadding(0, dp(8), 0, 0) })
-        header.addView(label("First choose a registered device from the live backend. Then compose and deliver its notice.", Color.parseColor("#E9FAF5"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(6), 0, 0) })
+        header.addView(label("A calmer way to send school notices.", Color.WHITE, 28f, Typeface.BOLD).apply { setPadding(0, dp(10), 0, 0) })
+        header.addView(label("Secure your account, choose one live Receiver, write clearly, and deliver with confidence.", Color.parseColor("#E9FAF5"), 15f, Typeface.NORMAL).apply { setPadding(0, dp(8), 0, 0) })
         page.addView(header)
 
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(32)) }
+        body.addView(label("1  ACCOUNT     2  DELIVERY TARGET     3  NOTICE", Color.parseColor("#0E5D5A"), 11f, Typeface.BOLD).apply { setPadding(dp(4), 0, 0, dp(12)) })
         statusChip = Chip(this).apply { isClickable = false; chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#D8F3EE")); setTextColor(Color.parseColor("#0E5D5A")) }
         body.addView(statusChip)
-        statusText = label("", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(10), 0, dp(14)) }
+        statusText = label("", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(dp(2), dp(10), dp(2), dp(14)) }
         body.addView(statusText)
         body.addView(authPanel(), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) })
 
@@ -90,6 +91,14 @@ class SenderActivity : ComponentActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(page)
+        body.post {
+            for (index in 0 until body.childCount) {
+                val child = body.getChildAt(index)
+                child.alpha = 0f
+                child.translationY = dp(12).toFloat()
+                child.animate().alpha(1f).translationY(0f).setStartDelay(index * 45L).setDuration(260L).start()
+            }
+        }
         return page
     }
 
@@ -149,7 +158,7 @@ class SenderActivity : ComponentActivity() {
     private fun targetPanel(): MaterialCardView = card().apply {
         addView(LinearLayout(this@SenderActivity).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("STEP 1 · DELIVERY TARGET", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            addView(label("STEP 2  ·  DELIVERY TARGET", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
             addView(label("These are real enabled Receiver records returned by the backend. Tap one to select it.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
             targetSummary = label("No receiver selected", Color.parseColor("#8A5A13"), 14f, Typeface.BOLD).apply { setPadding(0, 0, 0, dp(10)) }
             addView(targetSummary)
@@ -163,7 +172,7 @@ class SenderActivity : ComponentActivity() {
     private fun composerPanel(): MaterialCardView = card().apply {
         addView(LinearLayout(this@SenderActivity).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("STEP 2 · WRITE NOTICE", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            addView(label("STEP 3  ·  WRITE AND DELIVER", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
             addView(label("Notice fields unlock after you choose a live Receiver above.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(12)) })
             val titleLayout = TextInputLayout(this@SenderActivity).apply { hint = "Notice title"; boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE; counterMaxLength = 140; isCounterEnabled = true }
             titleInput = TextInputEditText(this@SenderActivity).apply { setSingleLine(); maxLines = 1 }
@@ -254,7 +263,7 @@ class SenderActivity : ComponentActivity() {
     }
 
     private fun renderConfiguredState() {
-        if (SenderBackendClient.isConfigured()) { statusChip.text = "Ready to load"; statusText.text = "Load registered Receivers from the connected backend." } else { statusChip.text = "Backend URL needed"; statusText.text = "This build needs its reachable HTTPS backend URL before it can load live devices." }
+        if (SenderBackendClient.isConfigured()) { statusChip.text = "Account first"; statusText.text = "Sign in with the Sender account, then load live Receivers." } else { statusChip.text = "Backend URL needed"; statusText.text = "This build needs its reachable HTTPS backend URL before it can load live devices." }
     }
 
     private fun loadReceivers() = lifecycleScope.launch {
@@ -304,12 +313,13 @@ class SenderActivity : ComponentActivity() {
         }
         targetSummary.setTextColor(Color.parseColor("#0E5D5A")); targetSummary.text = "Selected: ${receiver.label}"
         unlockComposer()
+        composerCard.animate().alpha(1f).translationY(0f).setDuration(220L).start()
         statusChip.text = "Target selected"; statusText.text = "Now write the notice for ${receiver.label}."
         resultText.text = "Target locked to receiver ID ${receiver.receiverId}."
     }
 
     private fun lockComposer() {
-        composerCard.alpha = 0.58f; titleInput.isEnabled = false; bodyInput.isEnabled = false; sendButton.isEnabled = false
+        composerCard.alpha = 0.58f; composerCard.translationY = dp(6).toFloat(); titleInput.isEnabled = false; bodyInput.isEnabled = false; sendButton.isEnabled = false
         if (::targetSummary.isInitialized) { targetSummary.text = "No receiver selected"; targetSummary.setTextColor(Color.parseColor("#8A5A13")) }
     }
     private fun unlockComposer() { composerCard.alpha = 1f; titleInput.isEnabled = true; bodyInput.isEnabled = true; sendButton.isEnabled = true }
