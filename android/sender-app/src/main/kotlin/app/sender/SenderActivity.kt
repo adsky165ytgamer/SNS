@@ -39,6 +39,8 @@ class SenderActivity : ComponentActivity() {
     private lateinit var resultText: TextView
     private lateinit var authSummary: TextView
     private lateinit var authButton: MaterialButton
+    private lateinit var emailInput: TextInputEditText
+    private lateinit var passwordInput: TextInputEditText
     private val receiverCards = mutableMapOf<String, MaterialCardView>()
     private var selectedReceiver: LiveReceiver? = null
     private val authSession by lazy { GoogleAuthSession(this) }
@@ -95,14 +97,52 @@ class SenderActivity : ComponentActivity() {
         addView(LinearLayout(this@SenderActivity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
-            addView(label("GOOGLE ACCOUNT", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
-            authSummary = label("Not authenticated. Secure the Sender before loading live Receivers.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
+            addView(label("SENDER ACCOUNT", Color.parseColor("#0E5D5A"), 12f, Typeface.BOLD))
+            authSummary = label("Sign in with the Email/Password account enabled in school-notics.", Color.parseColor("#526168"), 14f, Typeface.NORMAL).apply { setPadding(0, dp(7), 0, dp(10)) }
             addView(authSummary)
-            authButton = MaterialButton(this@SenderActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                text = authSession.preferredButtonText()
-                setOnClickListener { authenticate() }
+
+            val emailLayout = TextInputLayout(this@SenderActivity).apply {
+                hint = "Sender email"
+                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
             }
-            addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            emailInput = TextInputEditText(this@SenderActivity).apply {
+                setSingleLine()
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            }
+            emailLayout.addView(emailInput)
+            addView(emailLayout)
+
+            val passwordLayout = TextInputLayout(this@SenderActivity).apply {
+                hint = "Password"
+                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+                endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
+            }
+            passwordInput = TextInputEditText(this@SenderActivity).apply {
+                setSingleLine()
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            passwordLayout.addView(passwordInput)
+            addView(passwordLayout, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
+
+            authButton = MaterialButton(this@SenderActivity).apply {
+                text = "Sign in securely"
+                setOnClickListener { signInWithEmail() }
+            }
+            addView(authButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(14) })
+
+            val secondary = LinearLayout(this@SenderActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            secondary.addView(MaterialButton(this@SenderActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Create account"
+                setOnClickListener { createAccount() }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            secondary.addView(MaterialButton(this@SenderActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Reset password"
+                setOnClickListener { resetPassword() }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(8) })
+            addView(secondary, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         })
     }
 
@@ -136,36 +176,68 @@ class SenderActivity : ComponentActivity() {
         })
     }
 
-    private fun authenticate(): Job = lifecycleScope.launch {
-        authButton.isEnabled = false
-        authButton.text = "Signing in…"
-        runCatching { authSession.signIn() }.onSuccess {
-            authIdentity = it
-            renderAuth(it)
-            statusChip.text = "Authenticated"
-            statusText.text = "${it.authMethod} is active. Sender is ready to load live Receivers."
-            if (SenderBackendClient.isConfigured()) loadReceivers()
-        }.onFailure { error ->
-            authSummary.text = error.message ?: "Secure authentication did not complete."
-            statusChip.text = "Sign-in needs attention"
-            statusText.text = "Retry authentication before using the Sender."
-        }.also {
-            authButton.isEnabled = true
-            authButton.text = if (authIdentity == null) authSession.preferredButtonText() else "Sign out"
-            authButton.setOnClickListener { if (authIdentity == null) authenticate() else signOut() }
-        }
+    private fun authenticate(): Job = signInWithEmail()
+
+    private fun signInWithEmail(): Job = lifecycleScope.launch {
+        setAuthBusy(true, "Signing in…")
+        runCatching { authSession.signInWithEmail(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
+            .onSuccess { completeAuthentication(it) }
+            .onFailure { showAuthError(it) }
+            .also { setAuthBusy(false, if (authIdentity == null) "Sign in securely" else "Sign out") }
+    }
+
+    private fun createAccount(): Job = lifecycleScope.launch {
+        setAuthBusy(true, "Creating account…")
+        runCatching { authSession.createEmailAccount(emailInput.text?.toString().orEmpty(), passwordInput.text?.toString().orEmpty()) }
+            .onSuccess { completeAuthentication(it) }
+            .onFailure { showAuthError(it) }
+            .also { setAuthBusy(false, if (authIdentity == null) "Sign in securely" else "Sign out") }
+    }
+
+    private fun resetPassword(): Job = lifecycleScope.launch {
+        setAuthBusy(true, "Sending reset email…")
+        runCatching { authSession.sendPasswordReset(emailInput.text?.toString().orEmpty()) }
+            .onSuccess {
+                authSummary.text = "Password reset email sent. Check the inbox for ${emailInput.text}."
+                statusChip.text = "Reset email sent"
+                statusText.text = "Set a new password, then return here to sign in."
+            }
+            .onFailure { showAuthError(it) }
+            .also { setAuthBusy(false, "Sign in securely") }
+    }
+
+    private fun completeAuthentication(identity: AuthenticatedIdentity) {
+        authIdentity = identity
+        renderAuth(identity)
+        statusChip.text = "Authenticated"
+        statusText.text = "${identity.authMethod} is active. Sender is ready to load live Receivers."
+        if (SenderBackendClient.isConfigured()) loadReceivers()
+    }
+
+    private fun showAuthError(error: Throwable) {
+        val message = error.message ?: "Firebase authentication did not complete."
+        authSummary.text = message
+        statusChip.text = "Authentication failed"
+        statusText.text = "Check the email and password, then try again."
+    }
+
+    private fun setAuthBusy(busy: Boolean, label: String) {
+        authButton.isEnabled = !busy
+        authButton.text = label
+        if (::emailInput.isInitialized) emailInput.isEnabled = !busy
+        if (::passwordInput.isInitialized) passwordInput.isEnabled = !busy
     }
 
     private fun signOut(): Job = lifecycleScope.launch {
         authSession.signOut()
         authIdentity = null
-        authSummary.text = "Not authenticated. Secure the Sender before loading live Receivers."
-        authButton.text = authSession.preferredButtonText()
-        authButton.setOnClickListener { authenticate() }
+        authSummary.text = "Not authenticated. Sign in with the Sender Email/Password account."
+        authButton.text = "Sign in securely"
+        authButton.setOnClickListener { signInWithEmail() }
         lockComposer()
         receiverList.removeAllViews()
         statusChip.text = "Signed out"
-        statusText.text = "Authenticate to load live Receiver devices."
+        statusText.text = "Sign in to load live Receiver devices."
     }
 
     private suspend fun refreshAuth() {

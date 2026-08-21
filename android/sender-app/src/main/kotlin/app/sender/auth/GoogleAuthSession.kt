@@ -31,7 +31,28 @@ class GoogleAuthSession(activity: ComponentActivity) {
     fun isGoogleConfigured(): Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank() &&
         !BuildConfig.GOOGLE_WEB_CLIENT_ID.startsWith("replace-")
 
-    fun preferredButtonText(): String = if (isGoogleConfigured()) "Continue with Google" else "Secure this device"
+    fun preferredButtonText(): String = "Sign in with email"
+
+    fun isEmailPasswordConfigured(): Boolean = true
+
+    suspend fun signInWithEmail(email: String, password: String): AuthenticatedIdentity {
+        require(email.isNotBlank()) { "Enter the sender email address." }
+        require(password.length >= 6) { "Password must contain at least 6 characters." }
+        auth.signInWithEmailAndPassword(email.trim(), password).await()
+        return identity(auth.currentUser ?: error("Firebase did not return the signed-in account."), forceRefresh = true)
+    }
+
+    suspend fun createEmailAccount(email: String, password: String): AuthenticatedIdentity {
+        require(email.isNotBlank()) { "Enter an email address for the Sender account." }
+        require(password.length >= 6) { "Password must contain at least 6 characters." }
+        auth.createUserWithEmailAndPassword(email.trim(), password).await()
+        return identity(auth.currentUser ?: error("Firebase did not return the new Sender account."), forceRefresh = true)
+    }
+
+    suspend fun sendPasswordReset(email: String) {
+        require(email.isNotBlank()) { "Enter your sender email address first." }
+        auth.sendPasswordResetEmail(email.trim()).await()
+    }
 
     suspend fun current(): AuthenticatedIdentity? {
         val user = auth.currentUser ?: return null
@@ -47,15 +68,11 @@ class GoogleAuthSession(activity: ComponentActivity) {
                 googleFailure = error
             }
         }
-        return try {
-            anonymousSignIn()
-        } catch (error: Throwable) {
-            val googlePart = googleFailure?.let { " Google: ${describe(it)}." } ?: ""
-            throw IllegalStateException(
-                "Firebase authentication could not start.$googlePart Secure device session: ${describe(error)}. Enable Anonymous Auth in school-notics or configure the Web OAuth client ID.",
-                error,
-            )
-        }
+        val googlePart = googleFailure?.let { " Google: ${describe(it)}." } ?: ""
+        throw IllegalStateException(
+            "Google Sign-In is unavailable.$googlePart Use the Email/Password fields to sign in to the Sender.",
+            googleFailure,
+        )
     }
 
     private fun describe(error: Throwable): String =
@@ -86,12 +103,6 @@ class GoogleAuthSession(activity: ComponentActivity) {
         return identity(auth.currentUser ?: error("Firebase did not return a signed-in Google user."), forceRefresh = true)
     }
 
-    private suspend fun anonymousSignIn(): AuthenticatedIdentity {
-        val user = auth.currentUser ?: auth.signInAnonymously().await().user
-            ?: error("Firebase could not create a secure device session.")
-        return identity(user, forceRefresh = true)
-    }
-
     private suspend fun identity(user: FirebaseUser, forceRefresh: Boolean): AuthenticatedIdentity {
         val token = user.getIdToken(forceRefresh).await()?.token
             ?: error("Firebase did not return an ID token for the authenticated session.")
@@ -100,7 +111,7 @@ class GoogleAuthSession(activity: ComponentActivity) {
             displayName = user.displayName,
             email = user.email,
             idToken = token,
-            authMethod = if (user.isAnonymous) "Secure device session" else "Google Sign-In",
+            authMethod = if (user.isAnonymous) "Anonymous Auth" else if (user.providerData.any { it.providerId == "password" }) "Email/Password" else "Google Sign-In",
         )
     }
 }
