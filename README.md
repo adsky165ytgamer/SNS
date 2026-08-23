@@ -1,10 +1,12 @@
 # NoticeFlow Sender — Mobile-first Android app
 
-> **v1.1.0 Alpha · app.sender · Created by ad_vibe_dev · Proprietary / not open source**
+> **v1.1.1 Alpha Material 3 · app.sender · Created by ad_vibe_dev · Proprietary / not open source**
 
 NoticeFlow Sender is a mobile control room for composing and delivering school notices to real named Receiver devices. This release focuses on the phone experience only. Android TV, classroom-panel, and large-screen presentation work remain intentionally separate.
 
 ## Mobile experience
+
+This official signed update preserves Firebase Email/Password authentication, live Receiver discovery, recipient selection, notice delivery, and persistent history while refining Material 3 active-navigation feedback, loading states, safe-area handling, and account recovery. It adds a password-reset path to the Sender sign-in dialog and shows a specific in-progress state while real Receiver data is loading.
 
 The app is organized around four bottom-navigation destinations: **Home**, **Notices**, **Receivers**, and **Settings**. Home provides a greeting, status summary, prominent **Create Notice** action, recent activity, receiver availability, and connection state. Notices presents a chronological local delivery history and opens individual notice details with type, recipient, sent time, message ID, and delivery state. Receivers replaces a cramped dropdown with searchable, tappable target cards. Settings contains the sender account, connection status, notifications, diagnostics, About, and license information.
 
@@ -24,7 +26,9 @@ cd android
 ../gradle-8.13/bin/gradle :sender-app:assembleDebug
 ```
 
-The package is `app.sender`, version `1.1.0-alpha`, version code `3`. The matching APK is available from the [v1.1.0 Alpha release](https://github.com/adsky165ytgamer/SNS/releases/tag/v1.1.0-alpha).
+The package is `app.sender`, version `1.1.1-alpha-material3`, version code `4`. The matching APK and AAB are available from the [v1.1.1 Alpha Material 3 release](https://github.com/adsky165ytgamer/SNS/releases/tag/v1.1.1-alpha-material3).
+
+The official release key SHA-1 for `app.sender` is `D2:E7:74:1B:AB:01:19:63:69:DE:50:4B:D1:06:9A:88:1C:AC:D0:50`. Register it in the Google/Firebase Android OAuth configuration before attempting native Google sign-in. Email/Password is the tested primary sign-in route until a production Web OAuth client ID is configured.
 
 ## Proprietary license
 

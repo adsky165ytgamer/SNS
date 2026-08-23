@@ -78,6 +78,7 @@ class SenderActivity : ComponentActivity() {
     private var selectedReceiver: LiveReceiver? = null
     private val authSession by lazy { GoogleAuthSession(this) }
     private var authIdentity: AuthenticatedIdentity? = null
+    private var knownReceiverCount: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,7 +117,7 @@ class SenderActivity : ComponentActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            root.setPadding(0, 0, 0, bars.bottom)
+            root.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
         ViewCompat.requestApplyInsets(root)
@@ -167,7 +168,10 @@ class SenderActivity : ComponentActivity() {
 
     private fun selectNav(selected: Int) {
         for (i in 0 until nav.childCount) {
-            (nav.getChildAt(i) as? TextView)?.setTextColor(if (i == selected) teal else muted)
+            (nav.getChildAt(i) as? TextView)?.apply {
+                setTextColor(if (i == selected) teal else muted)
+                background = roundDrawable(if (i == selected) tealSoft else Color.TRANSPARENT, 18f)
+            }
         }
     }
 
@@ -224,7 +228,7 @@ class SenderActivity : ComponentActivity() {
         val section = sectionHeader("LIVE DELIVERY", "What is happening right now")
         column.addView(section)
         val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        stats.addView(statCard("Receivers", if (receiverCards.isEmpty()) "—" else receiverCards.size.toString(), "registered"), weight = 1f)
+        stats.addView(statCard("Receivers", knownReceiverCount?.toString() ?: "—", "live list"), weight = 1f)
         stats.addView(statCard("Sent", sentHistory.size.toString(), "this session"), weight = 1f, left = 8)
         column.addView(stats, marginBottom = 18)
 
@@ -479,10 +483,13 @@ class SenderActivity : ComponentActivity() {
                 refreshButton.text = "Refresh live receivers"
                 return@launch
             }
+            receiverList.removeAllViews()
+            receiverList.addView(emptyCard("Loading live receivers", "Contacting the authenticated NoticeFlow backend…"))
             runCatching { SenderBackendClient.loadReceivers(authIdentity!!.idToken) }
                 .onSuccess { receivers ->
                     receiverCards.clear()
                     receiverList.removeAllViews()
+                    knownReceiverCount = receivers.size
                     receivers.forEach { receiver ->
                         val card = receiverCard(receiver, returnToComposer)
                         card.tag = receiver
@@ -607,7 +614,7 @@ class SenderActivity : ComponentActivity() {
 
         column.addView(infoRow("Backend", SenderBackendClient.endpointLabel()))
         column.addView(infoRow("Delivery", "Firebase Cloud Messaging"))
-        column.addView(infoRow("App", "NoticeFlow Sender V0.1"))
+        column.addView(infoRow("App", "NoticeFlow Sender v1.1.1 Alpha"))
 
         animatePage(column)
     }
@@ -661,6 +668,15 @@ class SenderActivity : ComponentActivity() {
             }
         }
         box.addView(create, LinearLayout.LayoutParams(MATCH, dp(48)).apply { topMargin = dp(8) })
+
+        val reset = outlineButton("Reset password") {
+            lifecycleScope.launch {
+                runCatching { authSession.sendPasswordReset(emailInput.text?.toString().orEmpty()) }
+                    .onSuccess { email.error = "Reset email sent. Check your inbox." }
+                    .onFailure { email.error = it.message ?: "Could not send reset email" }
+            }
+        }
+        box.addView(reset, LinearLayout.LayoutParams(MATCH, dp(48)).apply { topMargin = dp(8) })
 
         dialog.setContentView(box)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
