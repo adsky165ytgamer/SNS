@@ -12,8 +12,8 @@ android {
         applicationId = "app.sender"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.1.5-beta-firebase"
+        versionCode = 10
+        versionName = "1.1.7-beta-authentication"
         buildConfigField("String", "BACKEND_BASE_URL", "\"${providers.gradleProperty("BACKEND_BASE_URL").getOrElse("https://replace-with-your-backend.example").trimEnd('/')}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").getOrElse("replace-with-production-web-client-id")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${providers.gradleProperty("FIREBASE_PROJECT_ID").getOrElse("school-notics")}\"")
