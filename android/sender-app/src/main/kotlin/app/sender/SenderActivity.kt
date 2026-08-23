@@ -614,7 +614,7 @@ class SenderActivity : ComponentActivity() {
 
         column.addView(infoRow("Backend", SenderBackendClient.endpointLabel()))
         column.addView(infoRow("Delivery", "Firebase Cloud Messaging"))
-        column.addView(infoRow("App", "NoticeFlow Sender v1.1.1 Alpha"))
+        column.addView(infoRow("App", "NoticeFlow Sender v1.1.2 Beta"))
 
         animatePage(column)
     }
