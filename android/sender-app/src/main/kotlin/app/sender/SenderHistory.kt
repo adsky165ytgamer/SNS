@@ -37,7 +37,7 @@ class SenderHistory(context: Context) {
     fun record(receiver: LiveReceiver, title: String, body: String, messageId: String) {
         val next = listOf(DeliveryRecord(receiver.receiverId, receiver.label, title.trim(), body.trim(), messageId, System.currentTimeMillis())) + items()
         val array = JSONArray()
-        next.distinctBy { "${it.receiverId}\u0000${it.title}\u0000${it.body}" }
+        next.distinctBy { it.messageId.ifBlank { "${it.receiverId}\u0000${it.sentAt}" } }
             .take(MAX_HISTORY)
             .forEach { record ->
                 array.put(JSONObject()
@@ -48,7 +48,7 @@ class SenderHistory(context: Context) {
                     .put("messageId", record.messageId)
                     .put("sentAt", record.sentAt))
             }
-        preferences.edit().putString("delivery_history", array.toString()).apply()
+        preferences.edit().putString("delivery_history", array.toString()).commit()
     }
 
     fun clear() = preferences.edit().remove("delivery_history").apply()
@@ -66,4 +66,3 @@ data class DeliveryRecord(
     val messageId: String,
     val sentAt: Long,
 )
-
