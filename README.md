@@ -1,35 +1,65 @@
-# NoticeFlow Sender — Mobile-first Android app
+# NoticeFlow Sender
 
-> **v1.1.1 Alpha Material 3 · app.sender · Created by ad_vibe_dev · Proprietary / not open source**
+> **Testing build · `app.sender` · Proprietary software**
 
-NoticeFlow Sender is a mobile control room for composing and delivering school notices to real named Receiver devices. This release focuses on the phone experience only. Android TV, classroom-panel, and large-screen presentation work remain intentionally separate.
+NoticeFlow Sender is the mobile control room for composing and delivering school notices to named Receiver devices.
 
-## Mobile experience
+## Current Home screen
 
-This official signed update preserves Firebase Email/Password authentication, live Receiver discovery, recipient selection, notice delivery, and persistent history while refining Material 3 active-navigation feedback, loading states, safe-area handling, and account recovery. It adds a password-reset path to the Sender sign-in dialog and shows a specific in-progress state while real Receiver data is loading.
+The Home screen is the Sender’s operational dashboard. It shows the signed-in account state, Firebase connection status, live Receiver availability, recent notice activity, and the primary **Create Notice** action. The workflow remains phone-first:
 
-The app is organized around four bottom-navigation destinations: **Home**, **Notices**, **Receivers**, and **Settings**. Home provides a greeting, status summary, prominent **Create Notice** action, recent activity, receiver availability, and connection state. Notices presents a chronological local delivery history and opens individual notice details with type, recipient, sent time, message ID, and delivery state. Receivers replaces a cramped dropdown with searchable, tappable target cards. Settings contains the sender account, connection status, notifications, diagnostics, About, and license information.
+1. Select a live Receiver.
+2. Enter the notice type, title, and body.
+3. Review the complete notice.
+4. Write the notice directly to Firebase for that Receiver.
 
-Create Notice is a focused step-by-step mobile flow. The sender chooses a notice type, writes a title and description, chooses a real Receiver card, previews the complete message, and sends only after the target is explicit. The screen uses phone-sized spacing, large touch targets, edge-to-edge insets, navigation-bar protection, and short transition animations instead of stretching a desktop-like layout.
+Receivers, Notices, and Settings remain available from the bottom navigation. The source for the Home screen and workflow is `android/sender-app/src/main/kotlin/app/sender/SenderActivity.kt`.
 
-## Live behavior
+## Direct Firebase architecture
 
-Firebase Email/Password authentication remains the primary session. The Sender obtains a Firebase ID token and attaches it to protected API requests. Receiver cards are loaded from the live backend; no classroom names, online states, IDs, or delivery results are fabricated. A locally stored delivery history records only notices accepted by the backend.
+The Sender connects directly to the `school-notics` Firebase project:
+
+- Firebase Authentication handles Email/Password and Google Sign-In.
+- Firestore `receivers` documents provide live Receiver discovery.
+- Firestore `receivers/{receiverId}/notices` stores outgoing notices.
+- No Fastify server, HTTP `BackendClient`, Cloud Run service, Firebase Admin SDK, or FCM sender path is used.
+- Firestore rules are in `firebase/firestore.rules`.
+
+The direct data client is `android/sender-app/src/main/kotlin/app/sender/DirectFirebaseStore.kt`.
+
+## Firebase configuration
+
+`google-services.json` is intentionally ignored by Git. For a local build, place the Firebase Android configuration containing the `app.sender` client at:
+
+```text
+android/sender-app/google-services.json
+```
+
+The Google web OAuth client is configured in the build as:
+
+```text
+763216367314-7ikindb4e0cabej1ut4rhj7n0ejeke6q.apps.googleusercontent.com
+```
+
+Enable **Google** under Firebase Authentication and register the SHA-1 certificate used to sign the APK in Firebase Project Settings. For the current sandbox debug APK, the SHA-1 is:
+
+```text
+4E:5E:53:54:94:3D:8C:5A:31:9F:A4:40:2B:27:D9:17:58:09:23:72
+```
 
 ## Build
 
-Copy `gradle.properties.example` to `gradle.properties`, fill in the permanent HTTPS backend URL and public Firebase client metadata for `school-notics`, then build only the Sender module:
-
 ```bash
-cp gradle.properties.example gradle.properties
 cd android
-../gradle-8.13/bin/gradle :sender-app:assembleDebug
+../gradle-8.12/bin/gradle :sender-app:assembleDebug
 ```
 
-The package is `app.sender`, version `1.1.1-alpha-material3`, version code `4`. The matching APK and AAB are available from the [v1.1.1 Alpha Material 3 release](https://github.com/adsky165ytgamer/SNS/releases/tag/v1.1.1-alpha-material3).
+The current testing APK is published in the GitHub testing release. The package is `app.sender`; the build targets SDK 36.
 
-The official release key SHA-1 for `app.sender` is `D2:E7:74:1B:AB:01:19:63:69:DE:50:4B:D1:06:9A:88:1C:AC:D0:50`. Register it in the Google/Firebase Android OAuth configuration before attempting native Google sign-in. Email/Password is the tested primary sign-in route until a production Web OAuth client ID is configured.
+## Testing release
 
-## Proprietary license
+See [`RELEASE_NOTES_TESTING.md`](RELEASE_NOTES_TESTING.md) for the complete Sender change list, removed components, Firebase rules, Google Auth requirements, and APK checksum.
 
-This application and repository are proprietary and are not open source. No permission is granted to copy, redistribute, reverse engineer, modify, publish, or use the source or APK without written authorization from **ad_vibe_dev**. Never commit `google-services.json`, local Gradle properties, keystores, Firebase Admin credentials, FCM server credentials, or private keys.
+## License
+
+This repository and application are proprietary. Do not commit `google-services.json`, service-account credentials, keystores, private keys, or local Gradle properties.
